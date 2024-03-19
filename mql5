@@ -1,0 +1,140 @@
+mql5
+//+------------------------------------------------------------------+
+//|                                                      BBMA Dancer |
+//|                                                         mt4.mq5 |
+//|                     Copyright 2022, Forex Robot Easy Team         |
+//|                                           https://forexroboteasy.com |
+//+------------------------------------------------------------------+
+
+//--- Include necessary libraries
+#include <Trade\Trade.mqh>
+#include <Trade\PositionInfo.mqh>
+
+//--- Define input parameters
+input int fastPeriod = 10; // Fast period for BBMA indicator
+input int slowPeriod = 20; // Slow period for BBMA indicator
+input double lotSize = 0.1; // Initial lot size to trade
+input double stopLoss = 100; // Stop loss value in pips
+input double takeProfit = 200; // Take profit value in pips
+
+//--- Define global variables
+CTrade trade; // Trade class instance
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+void OnInit()
+{
+   //--- Set indicator parameters
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
+   IndicatorSetInteger(INDICATOR_HEIGHT, 100);
+
+   //--- Set indicator labels
+   IndicatorSetString(INDICATOR_SHORTNAME, 'BBMA Dancer');
+
+   //--- Set indicator buffers
+   SetIndexBuffer(0, bbmaBuffer);
+
+   //--- Define indicator properties
+   SetIndexStyle(0, DRAW_LINE);
+   SetIndexLabel(0, 'BBMA');
+
+   //--- Set indicator parameters
+   SetIndexDrawBegin(0, slowPeriod);
+
+   //--- Attach indicator to the chart
+   IndicatorSetString(INDICATOR_NAME, 'BBMA Dancer');
+}
+
+//+------------------------------------------------------------------+
+//| Custom indicator iteration function                              |
+//+------------------------------------------------------------------+
+void OnCalculate(const int rates_total, const int prev_calculated, const datetime &time[], const double &open[], const double &high[], const double &low[], const double &close[], const long &tick_volume[], const long &volume[], const int &spread[])
+{
+   //--- Calculate BBMA indicator
+   ArraySetAsSeries(open, true);
+   ArraySetAsSeries(high, true);
+   ArraySetAsSeries(low, true);
+   ArraySetAsSeries(close, true);
+   ArraySetAsSeries(time, true);
+
+   int limit = rates_total - prev_calculated;
+   if (limit <= 0)
+      return;
+
+   for (int i = 0; i < limit; i++)
+   {
+      double bbma = iMA(NULL, 0, fastPeriod, 0, MODE_LWMA, PRICE_CLOSE, i) - iMA(NULL, 0, slowPeriod, 0, MODE_LWMA, PRICE_CLOSE, i);
+      bbmaBuffer[i] = bbma;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInitExpert()
+{
+   //--- Refresh data
+   RatesTotal = prev_calculated = 0;
+
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinitExpert()
+{
+
+}
+
+//+------------------------------------------------------------------+
+//| Expert start function                                            |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   //--- Check if we have open position
+   if (trade.PositionSelect(_Symbol))
+   {
+      //--- Get current position info
+      CPositionInfo positionInfo;
+      if (positionInfo.PositionGetDouble(POSITION_VOLUME) > 0)
+      {
+         double currentProfit = positionInfo.PositionGetDouble(POSITION_PROFIT);
+         double currentStopLoss = positionInfo.PositionGetDouble(POSITION_SL);
+         double currentTakeProfit = positionInfo.PositionGetDouble(POSITION_TP);
+
+         //--- Modify position
+         if (currentProfit >= takeProfit * _Point)
+         {
+            trade.PositionClose(_Symbol);
+         }
+         else if (currentProfit <= stopLoss * _Point)
+         {
+            trade.PositionClose(_Symbol);
+         }
+         else if (currentStopLoss != stopLoss * _Point || currentTakeProfit != takeProfit * _Point)
+         {
+            trade.PositionModify(_Symbol, currentStopLoss, currentTakeProfit);
+         }
+      }
+   }
+   else
+   {
+      //--- Check for BBMA signal
+      if (bbmaBuffer[0] > 0)
+      {
+         //--- Open buy position
+         trade.Buy(lotSize, _Symbol);
+         trade.PositionModify(_Symbol, stopLoss * _Point, takeProfit * _Point);
+      }
+      else if (bbmaBuffer[0] < 0)
+      {
+         //--- Open sell position
+         trade.Sell(lotSize, _Symbol);
+         trade.PositionModify(_Symbol, stopLoss * _Point, takeProfit * _Point);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
